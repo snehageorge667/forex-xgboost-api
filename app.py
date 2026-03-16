@@ -1,9 +1,11 @@
 from fastapi import FastAPI
 from utils.feature_engineering import create_features
+
 import pandas as pd
 import numpy as np
 import yfinance as yf
 import joblib
+
 from datetime import datetime, timedelta
 
 app = FastAPI(title="Forex XGBoost Prediction API")
@@ -37,19 +39,6 @@ def download_data():
     return raw
 
 
-def create_lag_features(df):
-
-    df['log_close'] = np.log(df['close'])
-
-    # create 48 lag features
-    for i in range(1, 49):
-        df[f'lag_{i}'] = df['log_close'].shift(i)
-
-    df.dropna(inplace=True)
-
-    return df
-
-
 @app.get("/")
 def home():
     return {"message": "Forex XGBoost Forecast API is running"}
@@ -58,10 +47,13 @@ def home():
 @app.get("/predict/xgboost")
 def predict_xgboost():
 
+    # download latest data
     raw = download_data()
 
+    # create features
     raw = create_features(raw)
 
+    # model feature list 
     feature_cols = [
         'cc_return_lag_1','cc_return_lag_2','cc_return_lag_3','cc_return_lag_5','cc_return_lag_10',
         'oc_return_lag_1','oc_return_lag_2','oc_return_lag_3','oc_return_lag_5','oc_return_lag_10',
@@ -82,13 +74,19 @@ def predict_xgboost():
 
     forecast = xgb_model.predict(X)
 
-    predicted_price = raw['close'].iloc[-1] * np.exp(forecast[0])
+    # convert log return prediction → price
+    last_close = raw['close'].iloc[-1]
+    predicted_price = last_close * np.exp(forecast[0])
+
+    # prediction date = today (user request date)
+    prediction_date = datetime.today().strftime("%Y-%m-%d")
 
     return {
         "model": "XGBoost",
-        "prediction_date": str(raw['date'].iloc[-1] + pd.Timedelta(days=1)),
+        "prediction_date": prediction_date,
         "predicted_close": float(predicted_price)
     }
+
 
 if __name__ == "__main__":
     import uvicorn
